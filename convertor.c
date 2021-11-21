@@ -131,31 +131,28 @@ int main(int argc, char *argv[]){
 
   char *inputFileName, *outputFileName;
   for(int i = 1; i < argc; i++){
-    if(strncmp(argv[i], "--debug=", 8) == 0){
+    if(!debug_mode && strncmp(argv[i], "--debug=", 8) == 0){
       if(strncmp(&argv[i][8], "1", 1) == 0){
-        printf("DEBUG MODE\n");
+        printf("Debug Mode\n");
         debug_mode = true;
       }
     } else {
-      const char *extension = strrchr(argv[i], '.');
-      if(strcmp(".ts", extension) != 0){
-        fputs("拡張子が違います。.tsファイルを指定してください。\n", stderr);
-        return 1;
-      }
-      if(debug_mode){ printf("Input File Name: %s\n", argv[i]); }
       inputFileName = argv[i];
       int inputFileNameLength = (int)strlen(inputFileName);
-      if(debug_mode){ printf("input file name length: %d\n", inputFileNameLength); }
-      outputFileName = (char*)malloc(inputFileNameLength + 2);
-      strncpy(outputFileName, inputFileName, inputFileNameLength-2);
+      outputFileName = (char *)malloc(inputFileNameLength + 2);
+      strncpy(outputFileName, inputFileName, inputFileNameLength - 2);
       snprintf(outputFileName, inputFileNameLength + 2, "%s%s", outputFileName, "aac");
-      if(debug_mode){ printf("Output File Name: %s\n", outputFileName); }
     }
+  }
+
+  if(debug_mode){
+    printf("Input File Name %s\n", inputFileName);
+    printf("Output File Name: %s\n", outputFileName);
   }
 
   FILE *fp = fopen(inputFileName, "rb");
   FILE *wfp = fopen(outputFileName, "wb");
-  free(&outputFileName);
+  free(outputFileName);
   if(fp == NULL || wfp == NULL){
     fputs("ファイルオープンに失敗しました。\n", stderr);
     exit(EXIT_FAILURE);

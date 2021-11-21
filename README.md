@@ -1,6 +1,6 @@
 # convertTStoAAC  
 mpeg2-tsファイル(.ts)をAAC(.aac)ファイルに変換するプログラム  
-converter from a mpeg2-ts file to an aac file  
+convertor from a mpeg2-ts file to an aac file  
 
 ## 使い方 Usage  
 ### コンパイル Compiling  
