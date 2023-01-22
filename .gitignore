@@ -54,3 +54,7 @@ dkms.conf
 # Audio files
 *.ts
 *.aac
+
+# Mac
+.DS_Store
+
