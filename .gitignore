@@ -54,3 +54,10 @@ dkms.conf
 # Audio files
 *.ts
 *.aac
+
+# compiled file
+convertor
+
+# Mac
+.DS_Store
+

@@ -46,7 +46,7 @@ void parsePMT(unsigned char *pat, pid_array *pidsOfAAC){
     int elementaryPID = ((pat[cursor+1] & 0x1F) << 8) | (pat[cursor+2] & 0xFF);
     if(debug_mode){ printf("Stream Type: 0x%02X(%d) Elementary PID: 0x%04X(%d)\n", streamType, streamType, elementaryPID, elementaryPID); }
 
-    if(streamType == 0x0F || streamType == 0x11){
+    if(streamType == 0x04 || streamType == 0x0F || streamType == 0x11){
       if(debug_mode){ printf("AAC PID発見\n"); }
       pidsOfAAC->pids[indexOfPids++] = elementaryPID;
     }
