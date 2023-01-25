@@ -2,12 +2,18 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
 
 #define TS_PACKET_SIZE 188
 #define PAYLOAD_SIZE 184
 #define PID_ARRAY_LEN 4
 
 bool debug_mode = false;
+
+enum FileFormat {
+  AAC,
+  MP3
+};
 
 typedef struct {
   int number;
@@ -32,30 +38,35 @@ void parsePAT(unsigned char* pat, pid_array *pidsOfPMT){
 }
 
 
-void parsePMT(unsigned char *pat, pid_array *pidsOfAAC){
+void parsePMT(unsigned char *pat, pid_array *pidsOfAudio,  enum FileFormat* format){
   int staticLengthOfPMT = 12;
   int sectionLength = ((pat[1] & 0x0F) << 8) | (pat[2] & 0xFF);
   if(debug_mode){ printf("Section Length: %d\n", sectionLength); }
   int programInfoLength = ((pat[10] & 0x0F) << 8) | (pat[11] & 0xFF);
   if(debug_mode){ printf("Program Info Length: %d\n", programInfoLength); }
 
-  int indexOfPids = pidsOfAAC->number;
+  int indexOfPids = pidsOfAudio->number;
   int cursor = staticLengthOfPMT + programInfoLength;
   while(cursor < sectionLength - 1){
     int streamType = pat[cursor] & 0xFF;
     int elementaryPID = ((pat[cursor+1] & 0x1F) << 8) | (pat[cursor+2] & 0xFF);
     if(debug_mode){ printf("Stream Type: 0x%02X(%d) Elementary PID: 0x%04X(%d)\n", streamType, streamType, elementaryPID, elementaryPID); }
 
-    if(streamType == 0x04 || streamType == 0x0F || streamType == 0x11){
+    if(streamType == 0x04){
+      if(debug_mode){ printf("MP3 PID発見\n"); }
+      *format = MP3;
+      pidsOfAudio->pids[indexOfPids++] = elementaryPID;
+    }else if(streamType == 0x0F || streamType == 0x11){
       if(debug_mode){ printf("AAC PID発見\n"); }
-      pidsOfAAC->pids[indexOfPids++] = elementaryPID;
+      *format = AAC;
+      pidsOfAudio->pids[indexOfPids++] = elementaryPID;
     }
 
     int esInfoLength = ((pat[cursor+3] & 0x0F) << 8) | (pat[cursor+4] & 0xFF);
     if(debug_mode){ printf("ES Info Length: 0x%04X(%d)\n", esInfoLength, esInfoLength); }
     cursor += 5 + esInfoLength;
   }
-  pidsOfAAC->number = indexOfPids;
+  pidsOfAudio->number = indexOfPids;
 }
 
 
@@ -80,7 +91,7 @@ void parsePES(unsigned char *pat, int posOfPacketStart, FILE *wfp){
 }
 
 
-void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfAAC, FILE* wfp){
+void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfAudio, FILE* wfp, enum FileFormat* format){
   int pid = ((packet[1] & 0x1F) << 8) | (packet[2] & 0xFF);
   if(debug_mode){ printf("PID: 0x%04X(%d)\n", pid, pid); }
   int payloadUnitStartIndicator = (packet[1] & 0x40) >> 6;
@@ -98,10 +109,18 @@ void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfA
   if(pid == 0){
     if(debug_mode){ printf("PATをパース\n"); }
     parsePAT(&packet[payloadStart], pidsOfPMT);
-  } else if(pidsOfAAC->number){
-    for(int i = 0; i < pidsOfAAC->number; i++){
-      if(pid == pidsOfAAC->pids[i]){
-        if(debug_mode){ printf("AAC発見\n"); }
+  } else if(pidsOfAudio->number){
+    for(int i = 0; i < pidsOfAudio->number; i++){
+      if(pid == pidsOfAudio->pids[i]){
+        if(debug_mode){
+          if(*format == MP3){
+            printf("MP3発見\n");
+          }else if(*format == AAC){
+            printf("AAC発見\n");
+          }else{
+            printf("フォーマット設定異常\n");
+          }
+        }
         int posOfPacketSrart = 4;
         if(remainingAdaptationFieldLength >= 0){
           posOfPacketSrart = 5+remainingAdaptationFieldLength;
@@ -115,7 +134,7 @@ void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfA
     for(int i = 0; i < pidsOfPMT->number; i++){
       if(pid == pidsOfPMT->pids[i]){ 
         if(debug_mode){ printf("PMT発見\n"); }
-        parsePMT(&packet[payloadStart], pidsOfAAC);
+        parsePMT(&packet[payloadStart], pidsOfAudio, format);
       }
     }
   }   
@@ -129,7 +148,8 @@ int main(int argc, char *argv[]){
     return 1;
   }
 
-  char *inputFileName, *outputFileName;
+  char *inputFileName, *temporalOutputFileName;
+  int inputFileNameLength;
   for(int i = 1; i < argc; i++){
     if(!debug_mode && strncmp(argv[i], "--debug=", 8) == 0){
       if(strncmp(&argv[i][8], "1", 1) == 0){
@@ -138,31 +158,32 @@ int main(int argc, char *argv[]){
       }
     } else {
       inputFileName = argv[i];
-      int inputFileNameLength = (int)strlen(inputFileName);
-      outputFileName = (char *)malloc(inputFileNameLength + 2);
-      strncpy(outputFileName, inputFileName, inputFileNameLength - 2);
-      snprintf(outputFileName, inputFileNameLength + 2, "%s%s", outputFileName, "aac");
+      inputFileNameLength = (int)strlen(inputFileName);
+      temporalOutputFileName = (char *)malloc(inputFileNameLength + 2);
+      strncpy(temporalOutputFileName, inputFileName, inputFileNameLength - 2);
+      snprintf(temporalOutputFileName, inputFileNameLength + 2, "%s%s", temporalOutputFileName, "tmp");
     }
   }
 
   if(debug_mode){
     printf("Input File Name %s\n", inputFileName);
-    printf("Output File Name: %s\n", outputFileName);
+    printf("Temporal Output File Name: %s\n", temporalOutputFileName);
   }
 
   FILE *fp = fopen(inputFileName, "rb");
-  FILE *wfp = fopen(outputFileName, "wb");
-  free(outputFileName);
+  FILE *wfp = fopen(temporalOutputFileName, "wb");
   if(fp == NULL || wfp == NULL){
     fputs("ファイルオープンに失敗しました。\n", stderr);
     exit(EXIT_FAILURE);
   }
 
-  pid_array pidsOfPMT, pidsOfAAC;
+  pid_array pidsOfPMT, pidsOfAudio;
   pidsOfPMT.number = 0;
-  pidsOfAAC.number = 0;
+  pidsOfAudio.number = 0;
 
   int packetCount = 0;
+
+  enum FileFormat outputFileFormat;
 
   while(1){
     int c = fgetc(fp);
@@ -181,7 +202,7 @@ int main(int argc, char *argv[]){
         fputs("パケット読み込み中にエラーが発生しました。\n", stderr);
         exit(EXIT_FAILURE);
       } else {
-        parsePacket(packet, &pidsOfPMT, &pidsOfAAC, wfp);
+        parsePacket(packet, &pidsOfPMT, &pidsOfAudio, wfp, &outputFileFormat);
       }
     }else{
       // 何もしない
@@ -194,6 +215,31 @@ int main(int argc, char *argv[]){
   }
 
   if(debug_mode){ printf("%d packets are found.\n", packetCount); }
+
+  char *outputFileName, *finalOutputFileFormat;
+  finalOutputFileFormat = (outputFileFormat == MP3) ? "mp3" : "aac";
+  outputFileName = (char *)malloc(inputFileNameLength + 2);
+  strncpy(outputFileName, inputFileName, inputFileNameLength - 2);
+  snprintf(outputFileName, inputFileNameLength + 2, "%s%s", outputFileName, finalOutputFileFormat);
+  if(debug_mode){
+    printf("Output File Name: %s\n", outputFileName);
+    printf("%s -> %s\n", temporalOutputFileName, outputFileName);
+  }
+
+  if (access(outputFileName, F_OK) != 0) {
+    if (rename(temporalOutputFileName, outputFileName) != 0) {
+      fputs("ファイルリネームに失敗しました。\n", stderr);
+      exit(EXIT_FAILURE);
+    }
+  } else {
+    fputs("同名の出力ファイルが既に存在しています。\n", stderr);
+    exit(EXIT_FAILURE);
+  }
+  free(temporalOutputFileName);
+  free(outputFileName);
+  if(debug_mode){
+    printf("Conversion done.\n");
+  }
 
   return 0;
 }
