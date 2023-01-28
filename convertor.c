@@ -57,7 +57,7 @@ void parsePAT(unsigned char* pat, pid_array *pidsOfPMT){
 }
 
 
-void parsePMT(unsigned char *pat, pid_array *pidsOfAudio,  enum FileFormat* format){
+void parsePMT(unsigned char *pat, pid_array *pidsOfAudio, enum FileFormat *format){
   int staticLengthOfPMT = 12;
   int sectionLength = ((pat[1] & 0x0F) << 8) | (pat[2] & 0xFF);
   if(debug_mode){ printf("Section Length: %d\n", sectionLength); }
@@ -89,28 +89,28 @@ void parsePMT(unsigned char *pat, pid_array *pidsOfAudio,  enum FileFormat* form
 }
 
 
-void parsePES(unsigned char *pat, int posOfPacketStart, FILE *wfp){
+void parsePES(unsigned char *pat, int posOfPacketStart, bool isNewPayload, enum FileFormat *format, FILE *wfp){
   int firstByte  = pat[0] & 0xFF;
   int secondByte = pat[1] & 0xFF;
   int thirdByte  = pat[2] & 0xFF;
   if(debug_mode){ printf("First 3 bytes: %02X %02X %02X\n", firstByte, secondByte, thirdByte); }
-  if(firstByte == 0x00 && secondByte == 0x00 && thirdByte == 0x01){
+  if(isNewPayload){
     int PESRemainingPacketLength = ((pat[4] & 0xFF) << 8) | (pat[5] & 0xFF);
     if(debug_mode){ printf("PES Packet length: %d\n", PESRemainingPacketLength); }
     int posOfHeaderLength = 8;
     int PESRemainingHeaderLength = pat[posOfHeaderLength] & 0xFF;
     if(debug_mode){ printf("PES Header length: %d\n", PESRemainingHeaderLength); }
     int startOfData = posOfHeaderLength + PESRemainingHeaderLength + 1;
-    if(debug_mode){ printf("First AAC data byte: %02X\n", pat[startOfData]); }
+    if(debug_mode){ printf("First %s data byte: %02X\n", (*format==AAC) ? "AAC" : "MP3" , pat[startOfData]); }
     fwrite(&pat[startOfData], 1, (TS_PACKET_SIZE - posOfPacketStart) - startOfData, wfp);
   }else{
-    if(debug_mode){ printf("First AAC data byte: %02X\n", pat[0]); }
+    if(debug_mode){ printf("First %s data byte: %02X\n", (*format==AAC) ? "AAC" : "MP3" , pat[0]); }
     fwrite(pat, 1, TS_PACKET_SIZE - posOfPacketStart, wfp);
   }
 }
 
 
-void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfAudio, FILE* wfp, enum FileFormat* format){
+void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfAudio, FILE* wfp, enum FileFormat *format){
   int pid = ((packet[1] & 0x1F) << 8) | (packet[2] & 0xFF);
   if(debug_mode){ printf("PID: 0x%04X(%d)\n", pid, pid); }
   int payloadUnitStartIndicator = (packet[1] & 0x40) >> 6;
@@ -143,9 +143,9 @@ void parsePacket(unsigned char* packet, pid_array *pidsOfPMT, pid_array *pidsOfA
         int posOfPacketSrart = 4;
         if(remainingAdaptationFieldLength >= 0){
           posOfPacketSrart = 5+remainingAdaptationFieldLength;
-          parsePES(&packet[posOfPacketSrart], posOfPacketSrart, wfp);
+          parsePES(&packet[posOfPacketSrart], posOfPacketSrart, payloadUnitStartIndicator ? true : false, format, wfp);
         }else{
-          parsePES(&packet[posOfPacketSrart], posOfPacketSrart, wfp);
+          parsePES(&packet[posOfPacketSrart], posOfPacketSrart, payloadUnitStartIndicator ? true : false, format, wfp);
         }
       }
     }
